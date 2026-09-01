@@ -2,13 +2,13 @@
   "crons": [
     {
       "path": "/api/dunning/cron",
-      "schedule": "0 */6 * * *",
-      "description": "Process dunning escalations every 6 hours"
+      "schedule": "0 6 * * *",
+      "description": "Process dunning escalations daily at 6 AM"
     },
     {
       "path": "/api/invoices/recurring",
-      "schedule": "0 6 * * *",
-      "description": "Generate recurring invoices daily at 6 AM"
+      "schedule": "0 7 * * *",
+      "description": "Generate recurring invoices daily at 7 AM"
     }
   ]
 }
