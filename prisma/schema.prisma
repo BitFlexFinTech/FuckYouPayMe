@@ -1,0 +1,422 @@
+// ─── FuckYouPayMe Database Schema ───────────────────────────────────────────
+// Generator & datasource
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── NextAuth v5 Required Models ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?   // bcrypt hash, null for OAuth users
+  role          Role      @default(FREELANCER)
+  totpSecret    String?   // base32-encoded TOTP secret
+  totpEnabled   Boolean   @default(false)
+
+  // Onboarding
+  businessName    String?
+  country         String?   // ISO 3166-1 alpha-2
+  currency        String?   @default("USD")
+  onboarded       Boolean   @default(false)
+  onboardingStep  Int       @default(0)
+
+  // Stripe Connect
+  stripeAccountId          String?  @unique
+  stripeOnboardingComplete Boolean @default(false)
+
+  // Crypto payout
+  cryptoWalletAddress String?
+
+  // Escalation defaults
+  escalationMaxLevel String? @default("fuck_you")
+  escalationInterval  Int?   @default(3)
+
+  // Late fee defaults
+  lateFeeEnabled    Boolean @default(true)
+  lateFeePercent    Float   @default(1.5)
+  lateFeeCapPercent Float   @default(15.0)
+
+  // Client reputation tracking (internal)
+  avgPaymentDays  Float @default(0)
+  totalDisputes   Int   @default(0)
+
+  // Relations
+  accounts        Account[]
+  sessions        Session[]
+  authenticators  Authenticator[]
+  invoices        Invoice[]      @relation("FreelancerInvoices")
+  clients         Client[]       @relation("FreelancerClients")
+  notifications   Notification[] @relation("UserNotifications")
+  templates       InvoiceTemplate[]
+  settings        Settings[]
+  adminActions    AdminAction[]  @relation("AdminActions")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+enum Role {
+  FREELANCER
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Authenticator {
+  id                   String   @id @default(cuid())
+  userId               String
+  credentialID         String   @unique
+  credentialPublicKey  String
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("authenticators")
+}
+
+// ─── Clients ─────────────────────────────────────────────────────────────────
+
+model Client {
+  id            String   @id @default(cuid())
+  freelancerId  String
+  name          String
+  email         String
+  company       String?
+
+  avgPaymentDays  Float   @default(0)
+  totalDisputes   Int     @default(0)
+  invoicesPaid    Int     @default(0)
+  totalInvoiced   Float   @default(0)
+  blacklisted     Boolean @default(false)
+
+  freelancer  User      @relation("FreelancerClients", fields: [freelancerId], references: [id])
+  invoices    Invoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([freelancerId, email])
+  @@map("clients")
+}
+
+// ─── Invoices ────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique
+  freelancerId  String
+  clientId      String?
+
+  clientName    String
+  clientEmail   String
+  clientCompany String?
+
+  subtotal            Int
+  taxPercent          Float?  @default(0)
+  taxAmount           Int?    @default(0)
+  total               Int
+  totalPaid           Int     @default(0)
+  currency            String  @default("USD")
+
+  platformFeePercent Float @default(2.5)
+  platformFeeAmount  Int
+  freelancerReceives Int
+  feeAbsorbed        Boolean @default(false)
+
+  dueDate      DateTime
+  issuedDate   DateTime @default(now())
+  paidDate     DateTime?
+  overdueDate  DateTime?
+
+  status        InvoiceStatus @default(DRAFT)
+  dunningStage  Int      @default(0)
+  maxDunningStage Int    @default(4)
+  dunningLevel  String   @default("fuck_you")
+  nextDunningDate DateTime?
+  lastDunningDate   DateTime?
+  dunningCompleted  Boolean @default(false)
+  escalationInterval Int?
+  customReminders    Json?
+
+  lateFeeEnabled  Boolean @default(true)
+  lateFeePercent  Float?  @default(1.5)
+  lateFeeCapped   Float?  @default(15.0)
+  lateFeeTotal    Int     @default(0)
+
+  notes   String?
+  attachments Json?
+
+  recurring          Boolean  @default(false)
+  recurringFrequency String?
+  recurringEndDate   DateTime?
+  nextRecurringDate  DateTime?
+
+  freelancer     User          @relation("FreelancerInvoices", fields: [freelancerId], references: [id])
+  client         Client?       @relation(fields: [clientId], references: [id])
+  items          InvoiceItem[]
+  payments       Payment[]
+  dunningEvents  DunningEvent[]
+  disputes       Dispute[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  DUNNING_ACTIVE
+  SETTLED
+  VOIDED
+  IN_LEGAL_PROCEEDINGS
+}
+
+model InvoiceItem {
+  id          String @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Float
+  rate        Int
+  amount      Int
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_items")
+}
+
+model InvoiceTemplate {
+  id           String   @id @default(cuid())
+  freelancerId String
+  name         String
+  items        Json
+  currency     String   @default("USD")
+  notes        String?
+
+  freelancer User @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("invoice_templates")
+}
+
+// ─── Payments ────────────────────────────────────────────────────────────────
+
+model Payment {
+  id           String        @id @default(cuid())
+  invoiceId    String
+  amount       Int
+  currency     String        @default("USD")
+  method       PaymentMethod
+  status       PaymentStatus @default(PENDING)
+
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String?
+  stripeCheckoutSessionId String?
+
+  cryptoAsset      String?
+  cryptoNetwork    String?
+  cryptoAmount     Float?
+  cryptoTxId       String?
+  cryptoWalletAddr String?
+  nowpaymentsPaymentId String? @unique
+
+  platformFeeAmount Int
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  STRIPE_CARD
+  STRIPE_ACH
+  STRIPE_SEPA
+  CRYPTO
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  CONFIRMED
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+// ─── Dunning Events ──────────────────────────────────────────────────────────
+
+model DunningEvent {
+  id         String   @id @default(cuid())
+  invoiceId  String
+  stage      Int
+  level      String
+  channel    String
+  recipient  String
+  subject    String
+  body       String   @db.Text
+  sentAt     DateTime @default(now())
+  openedAt   DateTime?
+  clickedAt  DateTime?
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("dunning_events")
+}
+// ─── Disputes ────────────────────────────────────────────────────────────────
+
+model Dispute {
+  id         String        @id @default(cuid())
+  invoiceId  String
+  clientName String
+  clientEmail String
+  reason     String        @db.Text
+  status     DisputeStatus @default(OPEN)
+  resolvedBy String?
+  resolution String?       @db.Text
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("disputes")
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED_FREELANCER
+  RESOLVED_CLIENT
+  VOIDED
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+model Notification {
+  id         String          @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  message    String          @db.Text
+  read       Boolean         @default(false)
+  link       String?
+
+  user User @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  INVOICE_SENT
+  INVOICE_VIEWED
+  PAYMENT_RECEIVED
+  DUNNING_SENT
+  DISPUTE_FILED
+  DISPUTE_RESOLVED
+  PAYOUT_SENT
+  SYSTEM
+  BROADCAST
+}
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+model Settings {
+  id           String @id @default(cuid())
+  userId       String @unique
+  locale       String @default("en-US")
+  timezone     String @default("UTC")
+  theme        String @default("dark")
+
+  emailNotifications Boolean @default(true)
+  smsNotifications  Boolean @default(false)
+  inAppNotifications Boolean @default(true)
+  pushNotifications Boolean @default(false)
+
+  defaultPaymentTerms String @default("NET30")
+  defaultCurrency     String @default("USD")
+  defaultTaxPercent   Float  @default(0)
+  defaultInvoiceNotes String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
+}
+
+// ─── Admin Actions ───────────────────────────────────────────────────────────
+
+model AdminAction {
+  id          String   @id @default(cuid())
+  adminId     String
+  action      String
+  targetType  String
+  targetId    String
+  details     String?  @db.Text
+
+  admin User @relation("AdminActions", fields: [adminId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("admin_actions")
+}
