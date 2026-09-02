@@ -12,12 +12,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/");
-    } else if (session?.user && (session.user as any).role !== "admin") {
-      router.push("/dashboard");
+    } else if (session?.user) {
+      const role = (session.user as any).role;
+      if (role !== "ADMIN") {
+        router.push("/dashboard");
+      }
     }
   }, [session, status, router]);
 
-  if (status === "loading" || !session?.user) return null;
+  if (status === "loading") return null;
 
   return (
     <div className="flex min-h-screen bg-black">

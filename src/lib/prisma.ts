@@ -6,27 +6,42 @@ const globalForPrisma = globalThis as unknown as {
 
 // Mock Prisma client for when DATABASE_URL is not set
 function createMockPrisma(): PrismaClient {
+  // Build a complete mock that handles chained model access like prisma.user.findUnique()
+  const mockModel = (modelName: string) => {
+    // Return a plain object with async methods instead of a Proxy
+    const methods: Record<string, Function> = {};
+    const handler = {
+      get(_target: any, prop: string) {
+        if (prop === "then" || prop === "catch" || prop === "finally") return undefined;
+        if (!methods[prop]) {
+          methods[prop] = (...args: any[]) => {
+            console.log(`[Mock DB] ${modelName}.${String(prop)}`, args[0] ? JSON.stringify(args[0]).slice(0, 100) : "");
+            if (String(prop).includes("findMany") || String(prop).includes("findFirst")) return Promise.resolve([]);
+            if (String(prop).includes("findUnique") || String(prop).includes("count")) return Promise.resolve(prop === "count" ? 0 : null);
+            if (String(prop).includes("create")) return Promise.resolve({ id: "mock-" + Date.now() });
+            if (String(prop).includes("update") || String(prop).includes("upsert")) return Promise.resolve({ id: "mock-updated" });
+            if (String(prop).includes("delete")) return Promise.resolve({ id: "mock-deleted" });
+            return Promise.resolve(null);
+          };
+        }
+        return methods[prop];
+      },
+    };
+    return new Proxy({}, handler);
+  };
+
+  const models: Record<string, any> = {};
   const handler = {
     get(_target: any, prop: string) {
       if (prop === "then" || prop === "catch" || prop === "finally") return undefined;
-      return new Proxy(() => {}, {
-        get(_t, p) { return handler.get(_t, p as string); },
-        apply(_t, _this, args) {
-          console.log("[Mock Prisma] Called:", prop, JSON.stringify(args).slice(0, 100));
-          // Return empty results for findMany, null for findUnique, etc.
-          if (prop === "findMany") return Promise.resolve([]);
-          if (prop === "findUnique") return Promise.resolve(null);
-          if (prop === "findFirst") return Promise.resolve(null);
-          if (prop === "count") return Promise.resolve(0);
-          if (prop === "create") return Promise.resolve({});
-          if (prop === "update") return Promise.resolve({});
-          if (prop === "upsert") return Promise.resolve({});
-          if (prop === "delete") return Promise.resolve({});
-          return Promise.resolve(null);
-        },
-      });
+      if (prop === "$connect" || prop === "$disconnect" || prop === "$on" || prop === "$use" || prop === "$extends" || prop === "$transaction") {
+        return () => Promise.resolve();
+      }
+      if (!models[prop]) {
+        models[prop] = mockModel(String(prop));
+      }
+      return models[prop];
     },
-    apply() { return this; },
   };
   return new Proxy({} as any, handler);
 }
