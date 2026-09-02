@@ -2,17 +2,37 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/dashboard/stats")
-      .then((r) => r.json())
-      .then((data) => { setStats(data); setLoading(false); })
-      .catch(() => setLoading(false));
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    fetch("/api/dashboard/stats", { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error("API returned " + r.status);
+        return r.json();
+      })
+      .then((data) => {
+        if (!cancelled) { setStats(data); setLoading(false); }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err.message || "Failed to load");
+          setLoading(false);
+        }
+      })
+      .finally(() => clearTimeout(timeout));
+
+    return () => { cancelled = true; controller.abort(); };
   }, []);
 
   const statusColor = (status: string) => {
@@ -26,14 +46,42 @@ export default function DashboardPage() {
     return colors[status] || colors.DRAFT;
   };
 
-  if (loading) return <div className="text-zinc-500 font-mono text-xs">Loading dashboard...</div>;
-  if (!stats) return <div className="text-zinc-500 font-mono text-xs">No data available</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="text-pink-500 text-4xl mb-4 animate-pulse">&#x25CF;</div>
+          <div className="text-zinc-500 font-mono text-xs">Loading dashboard...</div>
+        </div>
+      </div>
+    );
+  }
 
-  return (
+  if (error || !stats) {
+    // Show a basic dashboard even without API data
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-black uppercase tracking-tighter">{session?.user?.name || "Dashboard"}</h1>
+            <p className="text-sm text-zinc-500 font-mono mt-1">Freelancer Dashboard</p>
+          </div>
+          <button onClick={() => router.push("/invoices")} className="brutal-btn-primary px-6 py-3 text-sm">
+            + New Invoice
+          </button>
+        </div>
+        <div className="brutal-card p-8 text-center">
+          <p className="text-zinc-500 font-mono text-xs">Welcome to FuckYouPayMe. Create your first invoice to get started.</p>
+        </div>
+      </div>
+    );
+  }
+
+return (
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-black uppercase tracking-tighter">{stats.user?.name || "Dashboard"}</h1>
+          <h1 className="text-2xl font-black uppercase tracking-tighter">{stats.user?.name || session?.user?.name || "Dashboard"}</h1>
           <p className="text-sm text-zinc-500 font-mono mt-1">Freelancer Dashboard</p>
         </div>
         <button onClick={() => router.push("/invoices")} className="brutal-btn-primary px-6 py-3 text-sm">
@@ -44,23 +92,23 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="brutal-card p-6">
           <div className="stat-label">Paid</div>
-          <div className="stat-value text-emerald-400">${(stats.totalPaid / 100).toLocaleString()}</div>
-          <div className="text-xs text-zinc-600 mt-1 font-mono">{stats.invoiceCount} invoices</div>
+          <div className="stat-value text-emerald-400">${((stats.totalPaid || 0) / 100).toLocaleString()}</div>
+          <div className="text-xs text-zinc-600 mt-1 font-mono">{stats.invoiceCount || 0} invoices</div>
         </div>
         <div className="brutal-card p-6">
           <div className="stat-label">Outstanding</div>
-          <div className="stat-value text-pink-400">${(stats.totalOutstanding / 100).toLocaleString()}</div>
+          <div className="stat-value text-pink-400">${((stats.totalOutstanding || 0) / 100).toLocaleString()}</div>
           <div className="text-xs text-zinc-600 mt-1 font-mono">Awaiting payment</div>
         </div>
         <div className="brutal-card p-6">
           <div className="stat-label">Active Dunning</div>
-          <div className="stat-value text-white">{stats.activeDunning}</div>
+          <div className="stat-value text-white">{stats.activeDunning || 0}</div>
           <div className="text-xs text-zinc-600 mt-1 font-mono">In escalation</div>
         </div>
         <div className="brutal-card p-6">
           <div className="stat-label">Avg. Payment</div>
-          <div className="stat-value text-white">{stats.avgPaymentDays}d</div>
-          <div className="text-xs text-zinc-600 mt-1 font-mono">{stats.totalClients} clients</div>
+          <div className="stat-value text-white">{stats.avgPaymentDays || 0}d</div>
+          <div className="text-xs text-zinc-600 mt-1 font-mono">{stats.totalClients || 0} clients</div>
         </div>
       </div>
 
@@ -80,18 +128,18 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {stats.recentInvoices?.map((inv: any) => (
+              {(stats.recentInvoices || []).map((inv: any) => (
                 <tr key={inv.id} className="border-b border-white/5 hover:bg-white/5 cursor-pointer"
                   onClick={() => router.push("/invoices/" + inv.id)}>
                   <td className="px-6 py-4 font-medium text-white">{inv.clientName}</td>
-                  <td className="px-6 py-4 font-mono">${(inv.total / 100).toLocaleString()}</td>
+                  <td className="px-6 py-4 font-mono">${((inv.total || 0) / 100).toLocaleString()}</td>
                   <td className="px-6 py-4 hidden sm:table-cell">
                     <span className={"inline-block px-2 py-0.5 text-[10px] font-mono uppercase border " + statusColor(inv.status)}>
-                      {inv.status.replace(/_/g, " ")}
+                      {(inv.status || "").replace(/_/g, " ")}
                     </span>
                   </td>
                   <td className="px-6 py-4 font-mono text-xs text-zinc-500 hidden md:table-cell">
-                    {new Date(inv.dueDate).toLocaleDateString()}
+                    {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}
                   </td>
                 </tr>
               ))}
@@ -105,3 +153,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+  // ... rest of the dashboard with real data
