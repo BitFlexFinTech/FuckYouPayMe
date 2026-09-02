@@ -4,7 +4,6 @@ import type { NextRequest } from "next/server";
 // Simple in-memory rate limiter
 const rateMap = new Map<string, { count: number; resetAt: number }>();
 
-// Cleanup old entries every 10 minutes
 setInterval(() => {
   const now = Date.now();
   Array.from(rateMap.keys()).forEach((key) => {
@@ -22,14 +21,14 @@ export function rateLimit(
     || request.headers.get("x-real-ip")
     || "anonymous";
   const path = request.nextUrl.pathname;
-  const key = `${ip}:${path}`;
+  const key = ip + ":" + path;
 
   const now = Date.now();
   const entry = rateMap.get(key);
 
   if (!entry || entry.resetAt < now) {
     rateMap.set(key, { count: 1, resetAt: now + windowMs });
-    return null; // Allow
+    return null;
   }
 
   entry.count++;
@@ -48,7 +47,7 @@ export function rateLimit(
     );
   }
 
-  return null; // Allow
+  return null;
 }
 
 export function middleware(request: NextRequest) {
