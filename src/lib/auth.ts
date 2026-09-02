@@ -6,25 +6,16 @@ import { verify } from "otplib";
 // In-memory demo users for when no database is available
 const DEMO_USERS: Record<string, { passwordHash: string; name: string; role: string; onboarded: boolean }> = {};
 
-// Initialize demo users
-async function initDemoUsers() {
-  const hash = await import("bcryptjs").then(m => m.hash("demo1234", 12));
-  DEMO_USERS["maya@fuckyoupayme.online"] = {
-    passwordHash: hash,
-    name: "Maya Chen",
-    role: "FREELANCER",
-    onboarded: true,
-  };
-  DEMO_USERS["admin@fuckyoupayme.online"] = {
-    passwordHash: hash,
-    name: "Platform Admin",
-    role: "ADMIN",
-    onboarded: true,
-  };
+// Export this so the register API can add users
+export function addDemoUser(email: string, passwordHash: string, name: string, role: string = "FREELANCER") {
+  DEMO_USERS[email] = { passwordHash, name, role, onboarded: false };
 }
 
-// Initialize eagerly
-initDemoUsers().catch(() => {});
+// Initialize demo users synchronously with hardcoded bcrypt hash for "demo1234"
+// Generated with: bcryptjs.hashSync("demo1234", 12)
+const DEMO_HASH = "$2b$12$Ka1k5GiI8hNILMza9Isg3.uTqeRKtx8SsHGUlv.Pf2V7h.mrPaJjS";
+DEMO_USERS["maya@fuckyoupayme.online"] = { passwordHash: DEMO_HASH, name: "Maya Chen", role: "FREELANCER", onboarded: true };
+DEMO_USERS["admin@fuckyoupayme.online"] = { passwordHash: DEMO_HASH, name: "Platform Admin", role: "ADMIN", onboarded: true };
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
