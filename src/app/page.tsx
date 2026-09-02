@@ -46,16 +46,24 @@ const DEMO_USERS: { name: string; email: string; role: string; label: string; ac
 export default function LandingPage() {
   const router = useRouter();
   const [showDemoBanner, setShowDemoBanner] = useState(true);
+  const [demoError, setDemoError] = useState("");
 
   const handleDemoLogin = async (user: (typeof DEMO_USERS)[0]) => {
-    const result = await signIn("credentials", {
-      email: user.email,
-      password: "demo1234",
-      redirect: false,
-    });
-    if (result?.ok) {
-      router.push(user.role === "admin" ? "/admin" : "/dashboard");
-      router.refresh();
+    setDemoError("");
+    try {
+      const result = await signIn("credentials", {
+        email: user.email,
+        password: "demo1234",
+        redirect: false,
+      });
+      if (result?.ok) {
+        router.push(user.role === "admin" ? "/admin" : "/dashboard");
+        router.refresh();
+      } else {
+        setDemoError("Login failed: " + (result?.error || "Unknown error"));
+      }
+    } catch (e) {
+      setDemoError("Login error: " + String(e));
     }
   };
 
@@ -80,6 +88,7 @@ export default function LandingPage() {
                   {u.label}
                 </button>
               ))}
+              {demoError && <span className="text-red-400 text-xs font-mono">{demoError}</span>}
               <button onClick={() => setShowDemoBanner(false)} className="text-zinc-500 hover:text-white text-sm ml-2">✕</button>
             </div>
           </div>
