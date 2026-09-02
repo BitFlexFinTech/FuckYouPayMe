@@ -40,18 +40,22 @@ export async function GET() {
     }
   } catch {}
 
-  // Mock admin data
+  // Rich mock admin data
+  const { getMockInvoices, getMockUsers, getMockPayments, getMockDunningEvents, getMockDisputes } = await import("@/lib/mock-data");
+  const invoices = getMockInvoices();
+  const payments = getMockPayments();
+  const dunningEvents = getMockDunningEvents();
+  const disputes = getMockDisputes();
+  const users = getMockUsers();
+  const totalGmv = payments.filter((p: any) => p.status === "PAID").reduce((s: number, p: any) => s + p.amount, 0);
+  const totalFees = payments.filter((p: any) => p.status === "PAID").reduce((s: number, p: any) => s + p.platformFeeAmount, 0);
+  const stripeCount = payments.filter((p: any) => p.method === "STRIPE_CARD" || p.method === "STRIPE_ACH").length;
+  const paidInvoices = invoices.filter((i: any) => i.status === "PAID" || i.status === "SETTLED").length;
+  const dunningByStage: Record<number, number> = { 0: 2, 1: 2, 2: 1 };
   return NextResponse.json({
-    totalGmv: 5000000,
-    totalFees: 125000,
-    activeFreelancers: 187,
-    totalInvoices: 423,
-    paidInvoices: 312,
-    stripeCount: 280,
-    cryptoCount: 32,
-    openDisputes: 3,
-    dunningSent: 890,
-    dunningByStage: { 0: 400, 1: 250, 2: 120, 3: 70, 4: 50 },
-    recentUsers: [],
+    totalGmv, totalFees, activeFreelancers: users.length,
+    totalInvoices: invoices.length, paidInvoices,
+    stripeCount, cryptoCount: 0, openDisputes: disputes.length, dunningSent: dunningEvents.length,
+    dunningByStage, recentUsers: users.slice(0, 3),
   });
 }

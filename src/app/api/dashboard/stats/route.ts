@@ -39,21 +39,19 @@ export async function GET() {
     }
   } catch {}
 
-  // Return mock data for demo mode
+  // Return rich mock data for demo mode
+  const { getMockInvoices, getMockClients } = await import("@/lib/mock-data");
+  const invoices = getMockInvoices();
+  const clients = getMockClients();
+  const totalPaid = invoices.filter((i: any) => i.status === "PAID" || i.status === "SETTLED").reduce((s: number, i: any) => s + i.total, 0);
+  const totalOutstanding = invoices.filter((i: any) => i.status !== "PAID" && i.status !== "SETTLED" && i.status !== "VOIDED" && i.status !== "DRAFT").reduce((s: number, i: any) => s + i.total, 0);
+  const activeDunning = invoices.filter((i: any) => i.status === "DUNNING_ACTIVE").length;
   return NextResponse.json({
-    totalPaid: 24900,
-    totalOutstanding: 12400,
-    activeDunning: 2,
-    invoiceCount: 4,
-    totalClients: 3,
+    totalPaid, totalOutstanding, activeDunning,
+    invoiceCount: invoices.length,
+    totalClients: clients.length,
     avgPaymentDays: 12,
-    recentInvoices: [],
-    user: {
-      name: session.user.name || "Freelancer",
-      email: session.user.email,
-      businessName: null,
-      country: "US",
-      currency: "USD",
-    },
+    recentInvoices: invoices.slice(0, 5),
+    user: { name: "Maya Chen", email: session.user.email, businessName: "Chen Creative Studio", country: "US", currency: "USD" },
   });
 }
