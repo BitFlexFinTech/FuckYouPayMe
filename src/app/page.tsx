@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAppState } from "@/context/AppContext";
-import { UserSession } from "@/lib/types";
+import { signIn } from "next-auth/react";
 
 const FEATURES = [
   {
@@ -27,7 +26,7 @@ const FEATURES = [
     desc: "Client ghosting you? Hit the button. We send the next email right now. Or write your own — we'll send that too. This is the part people screenshot.",
   },
 ];
-const DEMO_USERS: { name: string; email: string; role: UserSession["role"]; label: string; accent: string }[] = [
+const DEMO_USERS: { name: string; email: string; role: string; label: string; accent: string }[] = [
   {
     name: "Maya Chen",
     email: "maya@fuckyoupayme.online",
@@ -46,15 +45,18 @@ const DEMO_USERS: { name: string; email: string; role: UserSession["role"]; labe
 
 export default function LandingPage() {
   const router = useRouter();
-  const { dispatch } = useAppState();
   const [showDemoBanner, setShowDemoBanner] = useState(true);
 
-  const handleDemoLogin = (user: (typeof DEMO_USERS)[0]) => {
-    dispatch({
-      type: "LOGIN",
-      payload: { name: user.name, email: user.email, role: user.role },
+  const handleDemoLogin = async (user: (typeof DEMO_USERS)[0]) => {
+    const result = await signIn("credentials", {
+      email: user.email,
+      password: "demo1234",
+      redirect: false,
     });
-    router.push(user.role === "admin" ? "/admin" : "/dashboard");
+    if (result?.ok) {
+      router.push(user.role === "admin" ? "/admin" : "/dashboard");
+      router.refresh();
+    }
   };
 
   return (

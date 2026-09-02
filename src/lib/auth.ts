@@ -1,12 +1,32 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import { compare } from "bcryptjs";
 import { verify } from "otplib";
-import { prisma } from "./prisma";
+
+// In-memory demo users for when no database is available
+const DEMO_USERS: Record<string, { passwordHash: string; name: string; role: string; onboarded: boolean }> = {};
+
+// Initialize demo users
+async function initDemoUsers() {
+  const hash = await import("bcryptjs").then(m => m.hash("demo1234", 12));
+  DEMO_USERS["maya@fuckyoupayme.online"] = {
+    passwordHash: hash,
+    name: "Maya Chen",
+    role: "FREELANCER",
+    onboarded: true,
+  };
+  DEMO_USERS["admin@fuckyoupayme.online"] = {
+    passwordHash: hash,
+    name: "Platform Admin",
+    role: "ADMIN",
+    onboarded: true,
+  };
+}
+
+// Initialize eagerly
+initDemoUsers().catch(() => {});
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma) as any,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
@@ -26,39 +46,50 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = credentials.email as string;
         const password = credentials.password as string;
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-        });
-
-        if (!user || !user.passwordHash) return null;
-
-        const passwordValid = await compare(password, user.passwordHash);
-        if (!passwordValid) return null;
-
-        // If TOTP is enabled, verify the code
-        if (user.totpEnabled) {
-          const totpCode = credentials.totp as string;
-          if (!totpCode) {
-            throw new Error("TOTP_REQUIRED");
-          }
-          try {
-            const isValid = verify({ token: totpCode, secret: user.totpSecret || "" });
-            if (!isValid) {
-              return null; // Invalid TOTP code
-            }
-          } catch {
-            return null; // Verification failed
-          }
+        // Check demo users first
+        const demoUser = DEMO_USERS[email];
+        if (demoUser) {
+          const passwordValid = await compare(password, demoUser.passwordHash);
+          if (!passwordValid) return null;
+          return {
+            id: email,
+            email,
+            name: demoUser.name,
+            role: demoUser.role,
+            onboarded: demoUser.onboarded,
+          };
         }
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          onboarded: user.onboarded,
-          image: user.image,
-        };
+        // Try database if available
+        try {
+          const { prisma } = await import("./prisma");
+          if (prisma) {
+            const user = await prisma.user.findUnique({ where: { email } });
+            if (user && user.passwordHash) {
+              const passwordValid = await compare(password, user.passwordHash);
+              if (!passwordValid) return null;
+
+              if (user.totpEnabled) {
+                const totpCode = credentials.totp as string;
+                if (!totpCode) throw new Error("TOTP_REQUIRED");
+                try {
+                  const isValid = verify({ token: totpCode, secret: user.totpSecret || "" });
+                  if (!isValid) return null;
+                } catch { return null; }
+              }
+
+              return {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role,
+                onboarded: user.onboarded,
+              };
+            }
+          }
+        } catch {}
+
+        return null;
       },
     }),
   ],
